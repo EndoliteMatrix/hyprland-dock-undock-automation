@@ -146,3 +146,4 @@ Logs each apply to `~/.local/state/dock-monitor-toggle.log`.
 ## License
 
 MIT — do whatever.
+# hyprland-dock-undock-automation
