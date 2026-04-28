@@ -1,7 +1,7 @@
-# hyprland-dock-undock-automation
+# hypr-dock-toggle
 
-A small Hyprland watcher that **auto-disables your laptop's internal panel
-when a specific external monitor is connected**, and re-enables it when you
+A small Hyprland watcher that auto-disables your laptop's internal panel
+when a specific external monitor is connected, and re-enables it when you
 undock. Reacts both at startup and live to monitor add/remove events.
 
 Built to fill a gap that one-shot display configurators (like nwg-displays)
@@ -10,77 +10,58 @@ presence, without manual toggling.
 
 ## What it does
 
-* On Hyprland startup, runs once and applies the right state for your
+- On Hyprland startup, runs once and applies the right state for your
   current dock situation.
-* Subscribes to Hyprland's `socket2` event stream and reruns whenever a
+- Subscribes to Hyprland's `socket2` event stream and reruns whenever a
   monitor is added or removed (i.e. every time you dock, undock, open or
   close the lid). Reacts within milliseconds.
-* Only touches the **internal panel**. Your external monitors' positions,
+- Only touches the internal panel. Your external monitors' positions,
   scales, refresh rates, etc. are governed by `monitors.conf` (which
   nwg-displays or your hand-edits manage). The script never overrides them.
 
 ## Requirements
 
-* Hyprland (tested on 0.54.x)
-* `bash`, `jq`, `socat` — all available in standard package repositories
-* Optional: nwg-displays for managing the rest of your monitor layout
-* Optional: `systemd --user` for the recommended install method
+- Hyprland (tested on 0.54.x)
+- `bash`, `jq`, `socat` — all available in standard package repositories
+- Optional: nwg-displays for managing the rest of your monitor layout
 
 ## Install
 
-```
-git clone https://github.com/EndoliteMatrix/hyprland-dock-undock-automation.git
-cd hyprland-dock-undock-automation
+```bash
+git clone https://github.com/hypr-dock-toggle.git
+cd hypr-dock-toggle
 ./install.sh
 ```
 
 The installer:
-
 1. Drops `dock-monitor-toggle.sh` into `~/.config/hypr/custom/scripts/`.
 2. Drops a config template `dock-monitor-toggle.conf` next to it (only if
    you don't already have one).
-3. Installs a systemd user service at
-   `~/.config/systemd/user/dock-monitor-toggle.service` and enables it.
-   The service has `Restart=on-failure`, so if the watcher ever dies
-   (socat segfault, OOM kill, etc.) it self-heals instead of silently
-   leaving you in a broken dock state.
-4. As a fallback for users not running systemd-user, appends an
-   `exec-once = …/dock-monitor-toggle.sh` line to
-   `~/.config/hypr/custom/execs.conf` (only if the systemd path isn't
-   available).
+3. Appends `exec-once = …/dock-monitor-toggle.sh` to
+   `~/.config/hypr/custom/execs.conf`.
+4. Optionally launches the watcher under your running Hyprland.
 
-> If your Hyprland config layout doesn't have a `custom/execs.conf` and
-> you're not using systemd-user, the installer will print the line you
-> need to add manually.
-
-### Why systemd-user over exec-once
-
-`exec-once` launches the watcher when Hyprland starts and forgets about
-it. If the watcher process dies for any reason mid-session, nothing
-restarts it — you'd discover this the next time you dock or undock and
-nothing happens. The systemd unit handles restart automatically and gives
-you proper logs via `journalctl --user -u dock-monitor-toggle`.
+> If your Hyprland config layout doesn't have a `custom/execs.conf`, the
+> installer will print the line you need to add manually.
 
 ## Configure
 
 After install, edit `~/.config/hypr/custom/scripts/dock-monitor-toggle.conf`
 and set:
 
-* `INTERNAL_DESC` — which monitor is your laptop panel.
-* `EXTERNAL_TAG` — substring of any external monitor's description that
-  uniquely identifies "I am docked." If multiple connected monitors
-  match this string, the script triggers on the first match — which is
-  the correct behavior for "any of these means I'm docked."
-* `INTERNAL_FALLBACK` — what to set the laptop to when enabling it
+- `INTERNAL_DESC` — which monitor is your laptop panel.
+- `EXTERNAL_TAG` — substring of any external monitor's description that
+  uniquely identifies "I am docked."
+- `INTERNAL_FALLBACK` — what to set the laptop to when enabling it
   (used when `monitors.conf` has no real config for it).
-* `INTERNAL_EXTRAS` — optional Hyprland monitor extras (e.g. `bitdepth,10`,
+- `INTERNAL_EXTRAS` — optional Hyprland monitor extras (e.g. `bitdepth,10`,
   `cm,hdr`, `vrr,1`) that nwg-displays doesn't expose. These are appended
   to the laptop's config every time it's enabled, so they remain "sticky"
   even after nwg-displays re-saves.
 
 Find your monitor identifiers with:
 
-```
+```bash
 hyprctl monitors -j | jq '.[] | {name, description}'
 ```
 
@@ -118,18 +99,12 @@ fragile boot until you re-save undocked.
 
 ## Usage
 
-After install, login to Hyprland and dock/undock as normal. The watcher
+After install, login to Hyprland and dock/undock as normal. The script
 runs in the background for the entire session.
 
-To verify it's reacting in real time (systemd install):
+To verify it's reacting in real time:
 
-```
-journalctl --user -u dock-monitor-toggle -f
-```
-
-Or via the script's own logfile (works regardless of launch method):
-
-```
+```bash
 tail -f ~/.local/state/dock-monitor-toggle.log
 ```
 
@@ -142,20 +117,20 @@ tail -f ~/.local/state/dock-monitor-toggle.log
 
 ## Uninstall
 
-```
+```bash
 ./uninstall.sh           # keeps config and log
 ./uninstall.sh --purge   # also removes config + log
 ```
 
-Stops and disables the systemd unit (or removes the exec-once line, with
-a `.bak` of the modified file), and deletes the script.
+Stops the running watcher, removes the exec-once line (with a `.bak` of
+the modified file), and deletes the script.
 
 ## How it works
 
 The script:
 
-1. Reads `~/.config/hypr/custom/scripts/dock-monitor-toggle.conf` for
-   monitor identifiers and behavior knobs.
+1. Reads `~/.config/hypr/.../dock-monitor-toggle.conf` for monitor
+   identifiers and behavior knobs.
 2. Defines `apply()`, which calls `hyprctl monitors -j` and uses `jq` to
    check if any connected monitor's description contains `EXTERNAL_TAG`.
 3. If yes (docked), runs `hyprctl keyword monitor "$INTERNAL_DESC,disable"`.
@@ -170,4 +145,5 @@ Logs each apply to `~/.local/state/dock-monitor-toggle.log`.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+GNU — do whatever.
+# hyprland-dock-undock-automation
