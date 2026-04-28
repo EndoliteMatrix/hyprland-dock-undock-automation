@@ -1,88 +1,79 @@
 #!/usr/bin/env bash
-# Installer for dock-monitor-toggle.
+# install.sh — install the dock-monitor-toggle watcher.
 #
-# Copies the watcher script and config template into your Hyprland config tree,
-# wires it into exec-once, and optionally starts it now if Hyprland is running.
+# Prefers a systemd --user service (auto-restart on failure, journalctl
+# logging). Falls back to Hyprland exec-once on systems without
+# systemd-user.
 
 set -euo pipefail
 
-SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HYPR_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hypr"
-SCRIPTS_DIR="$HYPR_DIR/custom/scripts"
-TARGET_SCRIPT="$SCRIPTS_DIR/dock-monitor-toggle.sh"
-TARGET_CONF="$SCRIPTS_DIR/dock-monitor-toggle.conf"
-EXEC_FILE="$HYPR_DIR/custom/execs.conf"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-say()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33m!! \033[0m %s\n' "$*" >&2; }
-die()  { printf '\033[1;31mxx \033[0m %s\n' "$*" >&2; exit 1; }
+SCRIPT_SRC="$REPO_DIR/dock-monitor-toggle.sh"
+CONF_SRC="$REPO_DIR/dock-monitor-toggle.conf.example"
+UNIT_SRC="$REPO_DIR/dock-monitor-toggle.service"
 
-# --- prerequisite checks -----------------------------------------------------
-[ -d "$HYPR_DIR" ] || die "no Hyprland config dir at $HYPR_DIR — is Hyprland installed?"
-for cmd in hyprctl jq socat bash grep sed; do
-    command -v "$cmd" >/dev/null || die "missing dependency: $cmd"
-done
+SCRIPT_DIR="$HOME/.config/hypr/custom/scripts"
+SCRIPT_DST="$SCRIPT_DIR/dock-monitor-toggle.sh"
+CONF_DST="$SCRIPT_DIR/dock-monitor-toggle.conf"
 
-# --- copy the script ---------------------------------------------------------
-mkdir -p "$SCRIPTS_DIR"
-install -m 755 "$SRC_DIR/dock-monitor-toggle.sh" "$TARGET_SCRIPT"
-say "installed script -> $TARGET_SCRIPT"
+UNIT_DIR="$HOME/.config/systemd/user"
+UNIT_DST="$UNIT_DIR/dock-monitor-toggle.service"
 
-# --- copy config template (only if no existing config) -----------------------
-if [ -f "$TARGET_CONF" ]; then
-    say "kept existing config -> $TARGET_CONF"
+EXECS_FILE="$HOME/.config/hypr/custom/execs.conf"
+
+log() { printf '[install] %s\n' "$*"; }
+
+# 1. Drop the script
+mkdir -p "$SCRIPT_DIR"
+install -m 0755 "$SCRIPT_SRC" "$SCRIPT_DST"
+log "installed script -> $SCRIPT_DST"
+
+# 2. Drop the config template if the user doesn't already have one
+if [[ ! -e "$CONF_DST" ]]; then
+    install -m 0644 "$CONF_SRC" "$CONF_DST"
+    log "installed default config -> $CONF_DST"
+    log "  -> edit it and set INTERNAL_DESC / EXTERNAL_TAG before relying on this"
 else
-    install -m 644 "$SRC_DIR/dock-monitor-toggle.conf.example" "$TARGET_CONF"
-    say "wrote config template -> $TARGET_CONF"
-    warn "EDIT THIS FILE before first run. Find your monitor IDs with:"
-    printf '       hyprctl monitors -j | jq '\''.[] | {name, description}'\''\n'
+    log "kept existing config at $CONF_DST"
 fi
 
-# --- wire exec-once ----------------------------------------------------------
-EXEC_LINE="exec-once = $TARGET_SCRIPT"
+# 3. Decide on launch method
+have_systemd_user() {
+    command -v systemctl >/dev/null 2>&1 \
+        && systemctl --user show-environment >/dev/null 2>&1
+}
 
-if [ -f "$EXEC_FILE" ]; then
-    if grep -qF "dock-monitor-toggle.sh" "$EXEC_FILE"; then
-        say "exec-once already present in $EXEC_FILE"
+if have_systemd_user && [[ -f "$UNIT_SRC" ]]; then
+    mkdir -p "$UNIT_DIR"
+    install -m 0644 "$UNIT_SRC" "$UNIT_DST"
+    log "installed systemd unit -> $UNIT_DST"
+
+    systemctl --user daemon-reload
+    systemctl --user enable --now dock-monitor-toggle.service
+    log "enabled + started dock-monitor-toggle.service"
+    log "  -> check it with: journalctl --user -u dock-monitor-toggle -f"
+else
+    log "systemd --user not available; falling back to Hyprland exec-once"
+    EXEC_LINE="exec-once = $SCRIPT_DST"
+
+    if [[ -f "$EXECS_FILE" ]]; then
+        if grep -Fq "$EXEC_LINE" "$EXECS_FILE"; then
+            log "exec-once line already present in $EXECS_FILE"
+        else
+            printf '\n%s\n' "$EXEC_LINE" >> "$EXECS_FILE"
+            log "appended exec-once line to $EXECS_FILE"
+        fi
     else
-        printf '\n# Auto-toggle internal laptop panel based on external dock presence.\n%s\n' "$EXEC_LINE" >> "$EXEC_FILE"
-        say "appended exec-once -> $EXEC_FILE"
-    fi
-else
-    warn "$EXEC_FILE not found. Add this to a sourced Hyprland config file:"
-    printf '       %s\n' "$EXEC_LINE"
-fi
+        cat <<EOF
 
-# --- offer to start the watcher now ------------------------------------------
-if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
-    if [ -s "$TARGET_CONF" ] && grep -qE '^INTERNAL_DESC=.+' "$TARGET_CONF" && ! grep -qE "0xABCD|Acme Corp DockMonitor" "$TARGET_CONF"; then
-        printf '\nStart the watcher now via Hyprland? [Y/n] '
-        read -r yn
-        case "${yn:-Y}" in
-            [Yy]*|'')
-                hyprctl dispatch exec "$TARGET_SCRIPT" >/dev/null
-                say "started watcher under Hyprland (logs at \$XDG_STATE_HOME/dock-monitor-toggle.log or ~/.local/state/dock-monitor-toggle.log)"
-                ;;
-        esac
-    else
-        warn "config still has placeholder values — edit $TARGET_CONF, then run:"
-        printf '       hyprctl dispatch exec %s\n' "$TARGET_SCRIPT"
-    fi
-else
-    say "Hyprland not currently running — watcher will start automatically on next login via exec-once."
-fi
+  No $EXECS_FILE found.
+  Add the following line to your Hyprland config manually:
 
-# --- monitors.conf invariant reminder ----------------------------------------
-cat <<'EOF'
+      $EXEC_LINE
 
-[!] monitors.conf invariant
-    Keep your internal panel ENABLED in monitors.conf (e.g.
-    `monitor=desc:Your Laptop Panel,3200x2000@120,0x0,1.33`), NOT `disable`.
-    The watcher flips it OFF at runtime when the dock is detected. If
-    monitors.conf disables the panel, an undocked boot can land you in a
-    black-screen state if the watcher is slow or fails.
-
-    If you use nwg-displays: save your config WHILE UNDOCKED so it persists
-    a real internal-panel line. Saving while docked writes `disable` for
-    the panel and breaks this invariant.
 EOF
+    fi
+fi
+
+log "done. dock/undock to test, or restart Hyprland to apply at session level."

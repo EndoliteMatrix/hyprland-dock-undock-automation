@@ -1,0 +1,22 @@
+[Unit]
+Description=Hyprland dock-aware monitor toggle
+Documentation=https://github.com/EndoliteMatrix/hyprland-dock-undock-automation
+# Only run inside a graphical (Hyprland) session
+PartOf=graphical-session.target
+After=graphical-session.target
+Requisite=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.config/hypr/custom/scripts/dock-monitor-toggle.sh
+Restart=on-failure
+RestartSec=2
+# Cap restart attempts so a persistently broken config doesn't thrash forever
+StartLimitIntervalSec=60
+StartLimitBurst=5
+# Inherit the user's Hyprland environment (HYPRLAND_INSTANCE_SIGNATURE,
+# XDG_RUNTIME_DIR, etc.) — required for hyprctl and socket2 access.
+PassEnvironment=HYPRLAND_INSTANCE_SIGNATURE XDG_RUNTIME_DIR WAYLAND_DISPLAY
+
+[Install]
+WantedBy=graphical-session.target

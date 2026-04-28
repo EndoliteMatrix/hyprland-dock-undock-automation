@@ -1,47 +1,59 @@
 #!/usr/bin/env bash
-# Uninstaller for dock-monitor-toggle.
+# uninstall.sh — remove the dock-monitor-toggle watcher.
 #
-# Stops the running watcher, removes the exec-once line, and deletes the script.
-# By default keeps your config file (so a re-install picks it up).
-# Pass --purge to also remove the config and the log file.
+# Stops the systemd unit if present, removes the exec-once line if
+# present, and deletes the script. With --purge, also removes config and
+# log files.
 
 set -euo pipefail
 
-HYPR_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hypr"
-SCRIPTS_DIR="$HYPR_DIR/custom/scripts"
-TARGET_SCRIPT="$SCRIPTS_DIR/dock-monitor-toggle.sh"
-TARGET_CONF="$SCRIPTS_DIR/dock-monitor-toggle.conf"
-EXEC_FILE="$HYPR_DIR/custom/execs.conf"
-LOG="${XDG_STATE_HOME:-$HOME/.local/state}/dock-monitor-toggle.log"
-
 PURGE=0
-[ "${1:-}" = "--purge" ] && PURGE=1
-
-say() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
-
-# --- stop running watcher ----------------------------------------------------
-PIDS=$(ps -eo pid,args | awk '/dock-monitor-toggle\.sh/ && !/awk/ {print $1}' || true)
-if [ -n "$PIDS" ]; then
-    # shellcheck disable=SC2086
-    kill $PIDS 2>/dev/null || true
-    say "stopped running watcher (PIDs: $PIDS)"
+if [[ "${1:-}" == "--purge" ]]; then
+    PURGE=1
 fi
 
-# --- remove exec-once line ---------------------------------------------------
-if [ -f "$EXEC_FILE" ] && grep -qF "dock-monitor-toggle.sh" "$EXEC_FILE"; then
-    sed -i.bak '/dock-monitor-toggle\.sh/d; /^# Auto-toggle internal laptop panel based on external dock presence\.$/d' "$EXEC_FILE"
-    say "removed exec-once line from $EXEC_FILE (backup at ${EXEC_FILE}.bak)"
+SCRIPT_DIR="$HOME/.config/hypr/custom/scripts"
+SCRIPT_DST="$SCRIPT_DIR/dock-monitor-toggle.sh"
+CONF_DST="$SCRIPT_DIR/dock-monitor-toggle.conf"
+LOG_FILE="$HOME/.local/state/dock-monitor-toggle.log"
+
+UNIT_DST="$HOME/.config/systemd/user/dock-monitor-toggle.service"
+EXECS_FILE="$HOME/.config/hypr/custom/execs.conf"
+
+log() { printf '[uninstall] %s\n' "$*"; }
+
+# 1. Stop + disable systemd unit if installed
+if [[ -f "$UNIT_DST" ]]; then
+    if command -v systemctl >/dev/null 2>&1 \
+        && systemctl --user show-environment >/dev/null 2>&1; then
+        systemctl --user disable --now dock-monitor-toggle.service || true
+        log "stopped + disabled dock-monitor-toggle.service"
+    fi
+    rm -f "$UNIT_DST"
+    log "removed unit file $UNIT_DST"
+    systemctl --user daemon-reload 2>/dev/null || true
 fi
 
-# --- remove the script -------------------------------------------------------
-[ -f "$TARGET_SCRIPT" ] && rm "$TARGET_SCRIPT" && say "removed $TARGET_SCRIPT"
-
-# --- optionally remove config + log ------------------------------------------
-if [ "$PURGE" -eq 1 ]; then
-    [ -f "$TARGET_CONF" ] && rm "$TARGET_CONF" && say "removed $TARGET_CONF"
-    [ -f "$LOG" ] && rm "$LOG" && say "removed $LOG"
-else
-    [ -f "$TARGET_CONF" ] && say "kept config at $TARGET_CONF (use --purge to remove)"
+# 2. Strip exec-once line from execs.conf if present
+if [[ -f "$EXECS_FILE" ]] && grep -Fq "dock-monitor-toggle.sh" "$EXECS_FILE"; then
+    cp "$EXECS_FILE" "$EXECS_FILE.bak"
+    grep -Fv "dock-monitor-toggle.sh" "$EXECS_FILE.bak" > "$EXECS_FILE"
+    log "removed exec-once line from $EXECS_FILE (backup at $EXECS_FILE.bak)"
 fi
 
-say "done. Reload Hyprland (or log out/in) to fully detach from this session."
+# 3. Kill any straggler processes (covers exec-once installs and dev runs)
+pkill -f "$SCRIPT_DST" 2>/dev/null || true
+
+# 4. Remove the script itself
+if [[ -f "$SCRIPT_DST" ]]; then
+    rm -f "$SCRIPT_DST"
+    log "removed $SCRIPT_DST"
+fi
+
+# 5. Optional purge
+if (( PURGE )); then
+    rm -f "$CONF_DST" "$LOG_FILE"
+    log "purged config + log"
+fi
+
+log "done."
