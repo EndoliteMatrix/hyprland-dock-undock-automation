@@ -1,0 +1,16 @@
+# Example monitors.conf showing the recommended pattern for use with
+# dock-monitor-toggle. Replace placeholder descriptions with your own
+# (find them with: hyprctl monitors -j | jq '.[] | {name, description}').
+#
+# Key invariant: the internal panel is ENABLED here, not `disable`. The
+# watcher script flips it off at runtime when the dock is detected.
+# This way, an undocked boot always brings the panel up correctly even
+# if the watcher fails or is slow to start.
+
+# Internal laptop panel — keep this line ENABLED.
+monitor=desc:Your Laptop Panel Name,preferred,auto,1
+
+# External dock monitor(s). Add as many as you have. Positions/scales here
+# control your docked layout; the watcher does NOT touch external monitors.
+monitor=desc:Acme Corp DockMonitor 27,2560x1440@60,0x0,1.0
+# monitor=desc:Acme Corp Second Monitor,2560x1440@60,2560x0,1.0

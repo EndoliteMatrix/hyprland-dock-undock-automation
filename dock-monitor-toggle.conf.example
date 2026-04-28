@@ -1,0 +1,45 @@
+# dock-monitor-toggle configuration
+#
+# Find your monitor identifiers with:
+#   hyprctl monitors -j | jq '.[] | {name, description}'
+#
+# Example output:
+#   { "name": "eDP-1",  "description": "LG Display 0x07C5" }
+#   { "name": "DP-1",   "description": "Hewlett Packard HP Pavilion32 CNC731142Q" }
+
+# REQUIRED: which monitor is your laptop's internal panel.
+# Use 'desc:<exact description string>' (recommended — survives connector renames),
+# or a connector name like 'eDP-1'.
+INTERNAL_DESC='desc:LG Display 0xABCD'
+
+# REQUIRED: a substring that uniquely identifies any external monitor on your dock.
+# When ANY connected monitor's description contains this substring, the script
+# treats you as docked and disables the internal panel.
+# Pick something stable (manufacturer + model is usually fine).
+EXTERNAL_TAG='Acme Corp DockMonitor 27'
+
+# OPTIONAL: how the internal panel should be configured when enabled (undocked).
+# Used when monitors.conf has the internal panel set to `disable`, or has no
+# entry for it. If monitors.conf has a real entry, that's used instead and
+# INTERNAL_EXTRAS (below) is appended.
+#
+# Format: <RES_OR_preferred>,<POS_OR_auto>,<SCALE>
+# Examples:
+#   'preferred,auto,1'
+#   'preferred,auto,1.5'
+#   '3200x2000@120,0x0,1.33'
+INTERNAL_FALLBACK='preferred,auto,1'
+
+# OPTIONAL: extra Hyprland monitor parameters appended to the internal panel
+# whenever it's enabled. Comma-separated key,value pairs. Useful for HDR/10-bit
+# settings that nwg-displays does not expose, so they remain "sticky" across
+# nwg-displays saves.
+#
+# Examples:
+#   INTERNAL_EXTRAS=''                          # nothing extra
+#   INTERNAL_EXTRAS='bitdepth,10'               # 10-bit color
+#   INTERNAL_EXTRAS='bitdepth,10,cm,hdr'        # 10-bit + HDR (driver-dependent)
+#   INTERNAL_EXTRAS='vrr,1,bitdepth,10'         # variable refresh + 10-bit
+#
+# See https://wiki.hyprland.org/Configuring/Monitors/ for the full extras list.
+INTERNAL_EXTRAS=''
