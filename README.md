@@ -28,7 +28,7 @@ presence, without manual toggling.
 ## Install
 
 ```bash
-git clone https://github.com/hypr-dock-toggle.git
+git clone https://github.com/EndoliteMatrix/hypr-dock-toggle.git
 cd hypr-dock-toggle
 ./install.sh
 ```
