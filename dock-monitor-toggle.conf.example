@@ -43,3 +43,23 @@ INTERNAL_FALLBACK='preferred,auto,1'
 #
 # See https://wiki.hyprland.org/Configuring/Monitors/ for the full extras list.
 INTERNAL_EXTRAS=''
+
+# OPTIONAL: force the position and/or scale of the internal panel, ignoring
+# whatever monitors.conf says for those fields. The mode (refresh/resolution)
+# and any extras above are still honored.
+#
+# Use these when your display configurator can't reliably place the laptop
+# tile next to your external monitors — for example, nwg-displays' tile
+# snapping struggles when the laptop's resolution is much higher (or lower)
+# than the externals, and may keep dropping the laptop on top of another
+# monitor. Setting INTERNAL_FORCE_POSITION here means you can save in
+# nwg-displays freely; the watcher will re-assert your chosen position
+# every time the config reloads.
+#
+# Examples:
+#   INTERNAL_FORCE_POSITION=''            # don't override (default)
+#   INTERNAL_FORCE_POSITION='1000x1440'   # always place at x=1000, y=1440
+#   INTERNAL_FORCE_SCALE=''               # don't override (default)
+#   INTERNAL_FORCE_SCALE='1.0'            # always scale 1.0
+INTERNAL_FORCE_POSITION=''
+INTERNAL_FORCE_SCALE=''
