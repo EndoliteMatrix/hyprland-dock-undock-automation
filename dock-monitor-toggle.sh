@@ -89,6 +89,24 @@ apply() {
     log "apply state=$state cfg=${cfg} result=${result}"
 }
 
+# Wrap apply() with a hyprlock kill-and-restart so the lock surface doesn't
+# segfault on a vanishing EGL context during dock/undock. Only used for
+# topology changes — configreloaded events don't change the monitor set.
+apply_with_lock_guard() {
+    local was_locked=0
+    if pgrep -x hyprlock >/dev/null 2>&1; then
+        was_locked=1
+        pkill -x hyprlock 2>/dev/null || true
+        log "lock-guard: stopped hyprlock before monitor change"
+    fi
+    apply
+    if [ "$was_locked" = "1" ]; then
+        sleep 0.5
+        hyprlock &
+        log "lock-guard: restarted hyprlock after monitor change"
+    fi
+}
+
 log "start (HYPR=${HYPRLAND_INSTANCE_SIGNATURE:-unset})"
 
 # Brief settle delay so Hyprland's initial monitor parse completes before we override.
@@ -110,7 +128,7 @@ exec socat -U - "UNIX-CONNECT:${SOCKET}" | while IFS= read -r ev; do
     case "$ev" in
         monitoradded\>\>*|monitoraddedv2\>\>*|monitorremoved\>\>*|monitorremovedv2\>\>*)
             log "event: $ev"
-            apply
+            apply_with_lock_guard
             ;;
         configreloaded\>\>*)
             # Hyprland reloads when a sourced config (e.g. monitors.conf) changes.
