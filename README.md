@@ -58,6 +58,11 @@ and set:
   `cm,hdr`, `vrr,1`) that nwg-displays doesn't expose. These are appended
   to the laptop's config every time it's enabled, so they remain "sticky"
   even after nwg-displays re-saves.
+- `INTERNAL_FORCE_POSITION`, `INTERNAL_FORCE_SCALE` — optional. When set,
+  the watcher overrides the position and/or scale fields of the laptop
+  panel, ignoring whatever monitors.conf says for them. Useful when your
+  display configurator's tile snapping can't reliably place a high- or
+  low-DPI laptop next to your externals.
 
 Find your monitor identifiers with:
 
@@ -139,7 +144,12 @@ The script:
    `INTERNAL_EXTRAS` not already present, and applies that.
 5. Runs `apply()` once at startup, then `socat`s to Hyprland's `socket2`
    and reruns `apply()` on every `monitoradded` / `monitorremoved` event
-   (and the `v2` variants).
+   (and the `v2` variants), as well as on `configreloaded` events so that
+   `INTERNAL_EXTRAS` and any force-overrides survive an nwg-displays save.
+6. On topology-change events (add/remove only — not config reloads),
+   wraps the apply with a hyprlock kill-and-restart guard so the lock
+   surface doesn't segfault on a vanishing EGL context. No-op when
+   hyprlock isn't running.
 
 Logs each apply to `~/.local/state/dock-monitor-toggle.log`.
 

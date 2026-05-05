@@ -23,6 +23,12 @@ fi
 : "${EXTERNAL_TAG:?config error: EXTERNAL_TAG must be set (e.g. 'My Dock Monitor Vendor Name')}"
 INTERNAL_FALLBACK="${INTERNAL_FALLBACK:-preferred,auto,1}"
 INTERNAL_EXTRAS="${INTERNAL_EXTRAS:-}"
+# Optional: when set, the position and/or scale fields in monitors.conf
+# are ignored and replaced with these values. Useful when a display
+# configurator (e.g. nwg-displays) cannot reliably place the laptop tile
+# relative to higher- or lower-DPI external monitors.
+INTERNAL_FORCE_POSITION="${INTERNAL_FORCE_POSITION:-}"
+INTERNAL_FORCE_SCALE="${INTERNAL_FORCE_SCALE:-}"
 
 MONITORS_CONF="${MONITORS_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/hypr/monitors.conf}"
 LOG="${XDG_STATE_HOME:-$HOME/.local/state}/dock-monitor-toggle.log"
@@ -56,18 +62,35 @@ append_missing_extras() {
     printf '%s' "$cfg"
 }
 
+force_position_and_scale() {
+    local cfg="$1"
+    if [ -z "$INTERNAL_FORCE_POSITION" ] && [ -z "$INTERNAL_FORCE_SCALE" ]; then
+        printf '%s' "$cfg"
+        return
+    fi
+    # Hyprland monitor syntax is MODE,POSITION,SCALE[,extras...].
+    local -a parts
+    IFS=',' read -ra parts <<<"$cfg"
+    if (( ${#parts[@]} >= 3 )); then
+        [ -n "$INTERNAL_FORCE_POSITION" ] && parts[1]="$INTERNAL_FORCE_POSITION"
+        [ -n "$INTERNAL_FORCE_SCALE" ] && parts[2]="$INTERNAL_FORCE_SCALE"
+        cfg=$(IFS=','; echo "${parts[*]}")
+    fi
+    printf '%s' "$cfg"
+}
+
 internal_on_config() {
     local line rest
     line=$(grep -F "monitor=${INTERNAL_DESC}," "$MONITORS_CONF" 2>/dev/null | tail -n1)
     if [ -z "$line" ]; then
-        with_extras "$INTERNAL_FALLBACK"
-        return
+        rest="$INTERNAL_FALLBACK"
+    else
+        rest=${line#monitor=${INTERNAL_DESC},}
+        if [ "$rest" = "disable" ] || [ -z "$rest" ]; then
+            rest="$INTERNAL_FALLBACK"
+        fi
     fi
-    rest=${line#monitor=${INTERNAL_DESC},}
-    if [ "$rest" = "disable" ] || [ -z "$rest" ]; then
-        with_extras "$INTERNAL_FALLBACK"
-        return
-    fi
+    rest=$(force_position_and_scale "$rest")
     append_missing_extras "$rest"
 }
 
