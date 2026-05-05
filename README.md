@@ -46,31 +46,60 @@ The installer:
 
 ## Configure
 
-After install, edit `~/.config/hypr/custom/scripts/dock-monitor-toggle.conf`
-and set:
+After install, edit `~/.config/hypr/custom/scripts/dock-monitor-toggle.conf`.
+The keys below all take placeholder values — replace each `<...>` with
+something from your own setup.
 
-- `INTERNAL_DESC` — which monitor is your laptop panel.
-- `EXTERNAL_TAG` — substring of any external monitor's description that
-  uniquely identifies "I am docked."
-- `INTERNAL_FALLBACK` — what to set the laptop to when enabling it
-  (used when `monitors.conf` has no real config for it).
-- `INTERNAL_EXTRAS` — optional Hyprland monitor extras (e.g. `bitdepth,10`,
-  `cm,hdr`, `vrr,1`) that nwg-displays doesn't expose. These are appended
-  to the laptop's config every time it's enabled, so they remain "sticky"
-  even after nwg-displays re-saves.
-- `INTERNAL_FORCE_POSITION`, `INTERNAL_FORCE_SCALE` — optional. When set,
-  the watcher overrides the position and/or scale fields of the laptop
-  panel, ignoring whatever monitors.conf says for them. Useful when your
-  display configurator's tile snapping can't reliably place a high- or
-  low-DPI laptop next to your externals.
-
-Find your monitor identifiers with:
+### Step 1: find your monitor identifiers
 
 ```bash
 hyprctl monitors -j | jq '.[] | {name, description}'
 ```
 
-A fully worked example config is provided in
+You'll see something like:
+
+```
+{ "name": "eDP-1", "description": "<laptop panel vendor + model>" }
+{ "name": "DP-1",  "description": "<external monitor vendor + model>" }
+```
+
+Copy the laptop's `description` and a substring of any monitor that's
+only present when you're docked.
+
+### Step 2: required keys
+
+```bash
+# Which monitor is your laptop's internal panel.
+# Use 'desc:<exact description string>' so it survives connector renames.
+INTERNAL_DESC='desc:<your laptop panel description>'
+
+# Substring of any monitor that's only attached via your dock.
+# When the script sees this in any connected monitor's description, it
+# treats you as docked. Vendor + model is usually a safe pick.
+EXTERNAL_TAG='<unique substring of your dock monitor>'
+```
+
+### Step 3: optional keys
+
+```bash
+# How to set the laptop when there's nothing usable in monitors.conf.
+# Format: <MODE>,<POSITION>,<SCALE>
+INTERNAL_FALLBACK='preferred,auto,1'
+
+# Hyprland monitor extras (bitdepth, color management, VRR, etc.) that
+# nwg-displays doesn't write. Appended every time the panel is enabled
+# so they remain "sticky" across nwg-displays saves. Empty = nothing.
+INTERNAL_EXTRAS=''                  # or e.g. 'bitdepth,10'
+
+# When set, override the position/scale fields read from monitors.conf.
+# Use these only if your display configurator can't place the laptop
+# tile cleanly next to your externals (e.g. nwg-displays' tile snapping
+# struggles with mismatched DPIs). Both default to empty.
+INTERNAL_FORCE_POSITION=''          # or e.g. '<x>x<y>' such as '0x1440'
+INTERNAL_FORCE_SCALE=''             # or e.g. '1.0'
+```
+
+A fully worked example config with comments is at
 [`dock-monitor-toggle.conf.example`](dock-monitor-toggle.conf.example).
 
 ## monitors.conf invariant
