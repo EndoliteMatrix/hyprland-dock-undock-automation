@@ -112,5 +112,12 @@ exec socat -U - "UNIX-CONNECT:${SOCKET}" | while IFS= read -r ev; do
             log "event: $ev"
             apply
             ;;
+        configreloaded\>\>*)
+            # Hyprland reloads when a sourced config (e.g. monitors.conf) changes.
+            # Without this, INTERNAL_EXTRAS get dropped whenever a display tool
+            # (nwg-displays etc.) rewrites monitors.conf without them.
+            log "event: $ev"
+            apply
+            ;;
     esac
 done
