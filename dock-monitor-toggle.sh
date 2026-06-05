@@ -29,6 +29,15 @@ INTERNAL_EXTRAS="${INTERNAL_EXTRAS:-}"
 # relative to higher- or lower-DPI external monitors.
 INTERNAL_FORCE_POSITION="${INTERNAL_FORCE_POSITION:-}"
 INTERNAL_FORCE_SCALE="${INTERNAL_FORCE_SCALE:-}"
+# Optional: a visible dock monitor's desc to re-home workspace 1 onto while docked,
+# so Super+1 / focus doesn't land on the off-screen-parked internal panel. Empty = off.
+DOCKED_WS1_DESC="${DOCKED_WS1_DESC:-}"
+# Lid state is event-driven: the Hyprland lid bind calls this script with
+# `--lid closed|open` and we cache the value here. We do NOT poll
+# /proc/acpi/button/lid — on this machine it wrongly reports 'open' while physically
+# closed (lid_init_state=method, EC quirk). The panel is parked only when docked AND
+# the lid is closed (clamshell); docked + lid open keeps eDP-1 on as a normal monitor.
+LID_STATE_FILE="${LID_STATE_FILE:-${XDG_RUNTIME_DIR:-/tmp}/dock-monitor-lid}"
 
 MONITORS_CONF="${MONITORS_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/hypr/monitors.conf}"
 LOG="${XDG_STATE_HOME:-$HOME/.local/state}/dock-monitor-toggle.log"
@@ -99,17 +108,76 @@ docked() {
         | jq -e --arg tag "$EXTERNAL_TAG" 'any(.[]; .description | contains($tag))' >/dev/null
 }
 
-apply() {
-    local cfg result state
-    if docked; then
-        cfg="${INTERNAL_DESC},disable"
-        state="docked"
+# True when the lid is closed, per the event-driven cache the Hyprland lid bind writes.
+# Only evaluated when docked (see apply). If no lid event has been seen yet this boot
+# (flag absent), assume clamshell — the common docked-boot case — and let the next lid
+# toggle correct it.
+lid_closed() {
+    if [ -r "$LID_STATE_FILE" ]; then
+        [ "$(cat "$LID_STATE_FILE" 2>/dev/null)" = closed ]
     else
-        cfg="${INTERNAL_DESC},$(internal_on_config)"
-        state="undocked"
+        return 0
     fi
-    result=$(hyprctl keyword monitor "$cfg" 2>&1)
-    log "apply state=$state cfg=${cfg} result=${result}"
+}
+
+apply() {
+    local result is_docked=0
+    docked && is_docked=1
+    # Park the panel only in clamshell (docked AND lid closed). Docked with the lid
+    # open, or undocked, keeps eDP-1 on as a normal monitor.
+    if [ "$is_docked" = 1 ] && lid_closed; then
+        # Park eDP-1 off-screen + DPMS-off instead of `monitor:disable`.
+        # WHY NOT disable: Hyprland's `monitor:disable` misbehaves with a
+        # physically-connected internal panel — (1) while docked it FLAPS
+        # (Hyprland keeps re-adding the panel, fighting the disable), and
+        # (2) on undock a disabled internal panel often fails to RE-ENABLE
+        # (the `enable` keyword is accepted but no monitor-add event follows),
+        # leaving the panel dark until you re-dock. Parking off-screen keeps
+        # the monitor ENABLED the whole time, sidestepping both failure modes
+        # (it keeps a CRTC assigned as a side effect). Observed on Hyprland
+        # 0.55.2 — a compositor issue: the flap and the failed re-enable show
+        # up in Hyprland's own monitor events, with no matching upstream kernel
+        # bug. See README "Why off-screen park".
+        #
+        # `preferred` = the panel's native EDID mode. Off-screen at -30000x0 is
+        # unreachable: no monitor's left edge sits at a negative x, so the
+        # cursor stops at x=0 and can't wander onto the parked panel.
+        hyprctl keyword monitor "${INTERNAL_DESC},preferred,-30000x0,1.0" >/dev/null 2>&1
+        result=$(hyprctl dispatch dpms off "${INTERNAL_CONNECTOR:-eDP-1}" 2>&1)
+        log "apply state=clamshell(docked+lid-closed) action=offscreen+dpms-off result=${result}"
+        # The off-screen panel is still a live monitor, so Hyprland insists on an active
+        # workspace there. Pin a NAMED parking workspace to it (no numeric Super+N can
+        # reach a named workspace) and re-home ws1 — eDP-1's normal default — onto a
+        # visible dock monitor. Together this guarantees none of Super+1..0 strand you on
+        # the invisible panel. No-op when DOCKED_WS1_DESC is empty.
+        if [ -n "$DOCKED_WS1_DESC" ]; then
+            hyprctl keyword workspace "name:offscreen,monitor:${INTERNAL_DESC},default:true,persistent:true" >/dev/null 2>&1
+            hyprctl keyword workspace "1,monitor:${DOCKED_WS1_DESC}" >/dev/null 2>&1
+            # Order matters: move ws1 OFF eDP-1 first, THEN force name:offscreen on as
+            # eDP-1's final active workspace — so whatever empty numbered ws eDP-1 grabs
+            # when ws1 leaves is immediately displaced by the (unreachable) named one.
+            hyprctl dispatch moveworkspacetomonitor "1 ${DOCKED_WS1_DESC}" >/dev/null 2>&1
+            hyprctl dispatch moveworkspacetomonitor "name:offscreen ${INTERNAL_DESC}" >/dev/null 2>&1
+            log "apply state=clamshell ws1->${DOCKED_WS1_DESC} edp->name:offscreen"
+        fi
+    else
+        # eDP-1 ON: either undocked (sole screen) or docked with the lid open (4th
+        # monitor). Re-assert its mode/position/extras (clears any off-screen park),
+        # then wake. eDP-1 keeps a CRTC here, so a later undock stays safe.
+        local st; [ "$is_docked" = 1 ] && st="docked+lid-open" || st="undocked"
+        local cfg="${INTERNAL_DESC},$(internal_on_config)"
+        hyprctl keyword monitor "$cfg" >/dev/null 2>&1
+        result=$(hyprctl dispatch dpms on "${INTERNAL_CONNECTOR:-eDP-1}" 2>&1)
+        log "apply state=${st} cfg=${cfg} action=dpms-on result=${result}"
+        # eDP-1 is visible again — drop the parking workspace's persistence and restore
+        # ws1 to eDP-1 (its normal home).
+        if [ -n "$DOCKED_WS1_DESC" ]; then
+            hyprctl keyword workspace "name:offscreen,monitor:${INTERNAL_DESC},persistent:false" >/dev/null 2>&1
+            hyprctl keyword workspace "1,monitor:${INTERNAL_DESC},default:true" >/dev/null 2>&1
+            hyprctl dispatch moveworkspacetomonitor "1 ${INTERNAL_DESC}" >/dev/null 2>&1
+            log "apply state=${st} ws1->${INTERNAL_DESC}"
+        fi
+    fi
 }
 
 # Wrap apply() with a hyprlock kill-and-restart so the lock surface doesn't
@@ -129,6 +197,18 @@ apply_with_lock_guard() {
         log "lock-guard: restarted hyprlock after monitor change"
     fi
 }
+
+# Lid bind entrypoint: record the new lid state (authoritative, event-driven) then
+# re-apply. Hyprland's switch:on/off:Lid Switch binds call this; socket2 emits no event
+# for lid changes, so this is how a lid toggle re-runs the logic. Runs in the Hyprland
+# env, so hyprctl works. `--apply-once` re-applies using the cached lid state.
+case "${1:-}" in
+    --lid)
+        case "${2:-}" in closed|open) printf '%s' "$2" > "$LID_STATE_FILE" 2>/dev/null ;; esac
+        apply; exit 0 ;;
+    --apply-once)
+        apply; exit 0 ;;
+esac
 
 log "start (HYPR=${HYPRLAND_INSTANCE_SIGNATURE:-unset})"
 

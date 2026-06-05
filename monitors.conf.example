@@ -3,9 +3,10 @@
 # (find them with: hyprctl monitors -j | jq '.[] | {name, description}').
 #
 # Key invariant: the internal panel is ENABLED here, not `disable`. The
-# watcher script flips it off at runtime when the dock is detected.
-# This way, an undocked boot always brings the panel up correctly even
-# if the watcher fails or is slow to start.
+# watcher parks it off-screen (+ DPMS-off) at runtime when the dock is
+# detected — it never `disable`s it (see the README "Why off-screen park").
+# Keeping this line ENABLED means an undocked boot always brings the panel up
+# correctly even if the watcher fails or is slow to start.
 
 # Internal laptop panel — keep this line ENABLED.
 monitor=desc:Your Laptop Panel Name,preferred,auto,1

@@ -4,8 +4,8 @@
 #   hyprctl monitors -j | jq '.[] | {name, description}'
 #
 # Example output:
-#   { "name": "eDP-1",  "description": "LG Display 0x07C5" }
-#   { "name": "DP-1",   "description": "Hewlett Packard HP Pavilion32 CNC731142Q" }
+#   { "name": "eDP-1",  "description": "LG Display 0xABCD" }
+#   { "name": "DP-1",   "description": "Acme Corp DockMonitor 27" }
 
 # REQUIRED: which monitor is your laptop's internal panel.
 # Use 'desc:<exact description string>' (recommended — survives connector renames),
@@ -27,7 +27,7 @@ EXTERNAL_TAG='Acme Corp DockMonitor 27'
 # Examples:
 #   'preferred,auto,1'
 #   'preferred,auto,1.5'
-#   '3200x2000@120,0x0,1.33'
+#   '2560x1600@120,0x0,1.25'
 INTERNAL_FALLBACK='preferred,auto,1'
 
 # OPTIONAL: extra Hyprland monitor parameters appended to the internal panel
@@ -63,3 +63,31 @@ INTERNAL_EXTRAS=''
 #   INTERNAL_FORCE_SCALE='1.0'            # always scale 1.0
 INTERNAL_FORCE_POSITION=''
 INTERNAL_FORCE_SCALE=''
+
+# ─── Off-screen-park + lid-aware behavior (see README "Why off-screen park") ───
+# While docked, this tool parks the internal panel OFF-SCREEN (not
+# `monitor:disable`), because Hyprland's `disable` flaps a physically-connected
+# internal panel and often fails to re-enable it on undock. The keys below tune
+# that behavior. All optional.
+
+# The internal panel's CONNECTOR name (e.g. eDP-1), used for the
+# `hyprctl dispatch dpms on/off <connector>` calls. INTERNAL_DESC selects the
+# monitor by description; dpms needs the connector name. Defaults to eDP-1.
+INTERNAL_CONNECTOR='eDP-1'
+
+# Lid-aware parking: the panel is parked only when DOCKED *and* the lid is
+# CLOSED (clamshell). Docked with the lid OPEN keeps it on as an extra monitor.
+# Lid state is event-driven — add a Hyprland lid bind (see README) that calls:
+#     dock-monitor-toggle.sh --lid closed    (and  --lid open)
+# This file caches the last lid state here. If no lid event has fired yet this
+# boot, clamshell is assumed. Leave the default unless you need to relocate it.
+LID_STATE_FILE="${XDG_RUNTIME_DIR:-/tmp}/dock-monitor-lid"
+
+# Avoids a stranded workspace: an off-screen-parked panel is still a live
+# monitor, so Hyprland insists it hold an active workspace — and Super+1 / focus
+# could land on the invisible panel. Set this to a VISIBLE dock monitor's desc
+# to re-home workspace 1 onto it while docked (a persistent named `offscreen`
+# workspace is also pinned to the panel so no numbered Super+N reaches it).
+# Restored to the panel on undock. Empty = leave workspaces alone.
+#   e.g. DOCKED_WS1_DESC='desc:Acme Corp DockMonitor 27'
+DOCKED_WS1_DESC=''

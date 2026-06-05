@@ -76,4 +76,17 @@ EOF
     fi
 fi
 
+cat <<'EOF'
+
+  Optional — lid-aware parking (keep the panel on when docked with the lid
+  open; park only in clamshell). The watcher needs Hyprland to tell it the
+  lid state, so add these binds to your Hyprland config:
+
+      bindl = , switch:on:Lid Switch,  exec, ~/.config/hypr/custom/scripts/dock-monitor-toggle.sh --lid closed
+      bindl = , switch:off:Lid Switch, exec, ~/.config/hypr/custom/scripts/dock-monitor-toggle.sh --lid open
+
+  (Skip this to park the panel whenever docked, regardless of lid.)
+
+EOF
+
 log "done. dock/undock to test, or restart Hyprland to apply at session level."
